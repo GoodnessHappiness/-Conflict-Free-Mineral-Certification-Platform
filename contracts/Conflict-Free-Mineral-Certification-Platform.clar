@@ -9,6 +9,7 @@
 (define-constant err-mine-not-whitelisted (err u105))
 (define-constant err-already-voted (err u106))
 (define-constant err-insufficient-votes (err u107))
+(define-constant err-invalid-grade (err u108))
 
 (define-data-var last-token-id uint u0)
 (define-data-var last-mine-id uint u0)
@@ -31,12 +32,16 @@
     quantity: uint,
     certification-date: uint,
     origin-verified: bool,
-    transfer-history: (list 10 principal)
+    transfer-history: (list 10 principal),
+    quality-grade: (optional (string-ascii 3)),
+    graded-by: (optional principal),
+    grade-date: (optional uint)
 })
 
 (define-map mine-whitelist uint bool)
 (define-map flag-votes { mine-id: uint, voter: principal } bool)
 (define-map authorized-certifiers principal bool)
+(define-map authorized-graders principal bool)
 
 (define-public (get-last-token-id)
     (ok (var-get last-token-id)))
@@ -125,7 +130,10 @@
             quantity: quantity,
             certification-date: stacks-block-height,
             origin-verified: true,
-            transfer-history: (list recipient)
+            transfer-history: (list recipient),
+            quality-grade: none,
+            graded-by: none,
+            grade-date: none
         })
         (var-set last-token-id token-id)
         (print { 
@@ -159,6 +167,39 @@
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)
         (var-set voting-threshold new-threshold)
         (print { action: "voting-threshold-updated", threshold: new-threshold })
+        (ok true)))
+
+(define-public (authorize-grader (grader principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set authorized-graders grader true)
+        (print { action: "grader-authorized", grader: grader })
+        (ok true)))
+
+(define-public (revoke-grader (grader principal))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (map-set authorized-graders grader false)
+        (print { action: "grader-revoked", grader: grader })
+        (ok true)))
+
+(define-public (assign-quality-grade (token-id uint) (grade (string-ascii 3)))
+    (let ((token (unwrap! (map-get? mineral-certificates token-id) err-not-found)))
+        (asserts! (default-to false (map-get? authorized-graders tx-sender)) err-unauthorized)
+        (asserts! (or (is-eq grade "AAA") (is-eq grade "AA") (is-eq grade "A") 
+                      (is-eq grade "B") (is-eq grade "C")) err-invalid-grade)
+        (map-set mineral-certificates token-id 
+            (merge token {
+                quality-grade: (some grade),
+                graded-by: (some tx-sender),
+                grade-date: (some stacks-block-height)
+            }))
+        (print { 
+            action: "quality-grade-assigned", 
+            token-id: token-id, 
+            grade: grade, 
+            grader: tx-sender 
+        })
         (ok true)))
 
 (define-public (batch-transfer (token-ids (list 10 uint)) (recipients (list 10 principal)))
@@ -217,5 +258,27 @@
 
 (define-read-only (get-current-voting-threshold)
     (var-get voting-threshold))
+
+(define-read-only (is-grader-authorized (grader principal))
+    (default-to false (map-get? authorized-graders grader)))
+
+(define-read-only (get-quality-grade (token-id uint))
+    (match (map-get? mineral-certificates token-id)
+        token (get quality-grade token)
+        none))
+
+(define-read-only (get-grading-info (token-id uint))
+    (match (map-get? mineral-certificates token-id)
+        token {
+            quality-grade: (get quality-grade token),
+            graded-by: (get graded-by token),
+            grade-date: (get grade-date token)
+        }
+        { quality-grade: none, graded-by: none, grade-date: none }))
+
+(define-read-only (has-quality-grade (token-id uint) (grade (string-ascii 3)))
+    (match (get-quality-grade token-id)
+        current-grade (is-eq current-grade grade)
+        false))
 
 (map-set authorized-certifiers contract-owner true)
