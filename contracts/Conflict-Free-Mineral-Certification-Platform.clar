@@ -10,10 +10,12 @@
 (define-constant err-already-voted (err u106))
 (define-constant err-insufficient-votes (err u107))
 (define-constant err-invalid-grade (err u108))
+(define-constant err-contract-paused (err u109))
 
 (define-data-var last-token-id uint u0)
 (define-data-var last-mine-id uint u0)
 (define-data-var voting-threshold uint u3)
+(define-data-var contract-paused bool false)
 
 (define-map mines uint {
     owner: principal,
@@ -186,20 +188,32 @@
 (define-public (assign-quality-grade (token-id uint) (grade (string-ascii 3)))
     (let ((token (unwrap! (map-get? mineral-certificates token-id) err-not-found)))
         (asserts! (default-to false (map-get? authorized-graders tx-sender)) err-unauthorized)
-        (asserts! (or (is-eq grade "AAA") (is-eq grade "AA") (is-eq grade "A") 
+        (asserts! (or (is-eq grade "AAA") (is-eq grade "AA") (is-eq grade "A")
                       (is-eq grade "B") (is-eq grade "C")) err-invalid-grade)
-        (map-set mineral-certificates token-id 
+        (map-set mineral-certificates token-id
             (merge token {
                 quality-grade: (some grade),
                 graded-by: (some tx-sender),
                 grade-date: (some stacks-block-height)
             }))
-        (print { 
-            action: "quality-grade-assigned", 
-            token-id: token-id, 
-            grade: grade, 
-            grader: tx-sender 
+        (print {
+            action: "quality-grade-assigned",
+            token-id: token-id,
+            grade: grade,
+            grader: tx-sender
         })
+        (ok true)))
+(define-public (pause-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set contract-paused true)
+        (print { action: "contract-paused" })
+        (ok true)))
+(define-public (unpause-contract)
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set contract-paused false)
+        (print { action: "contract-unpaused" })
         (ok true)))
 
 (define-public (batch-transfer (token-ids (list 10 uint)) (recipients (list 10 principal)))
