@@ -216,6 +216,14 @@
         (print { action: "contract-unpaused" })
         (ok true)))
 
+(define-public (transfer-mine-ownership (mine-id uint) (new-owner principal))
+    (let ((mine (unwrap! (map-get? mines mine-id) err-not-found)))
+        (asserts! (is-eq tx-sender (get owner mine)) err-unauthorized)
+        (asserts! (not (is-eq new-owner (get owner mine))) err-unauthorized)
+        (map-set mines mine-id (merge mine { owner: new-owner }))
+        (print { action: "mine-ownership-transferred", mine-id: mine-id, from: tx-sender, to: new-owner })
+        (ok true)))
+
 (define-public (batch-transfer (token-ids (list 10 uint)) (recipients (list 10 principal)))
     (let ((transfers (map transfer-single token-ids recipients)))
         (asserts! (is-eq (len token-ids) (len recipients)) err-invalid-amount)

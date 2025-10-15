@@ -12,6 +12,7 @@ The Conflict-Free Mineral Certification Platform tackles one of the most pressin
 - 🗳️ **Community Governance**: Decentralized voting system to flag suspicious mines
 - ✅ **Whitelist Management**: Authorized certification of verified safe-source mines
 - 👥 **Multi-role System**: Contract owner, authorized certifiers, and community participants
+- 🔄 **Mine Ownership Transfer**: Seamless transfer of mine ownership between principals
 
 ## 🔧 Contract Functions
 
@@ -62,6 +63,14 @@ The Conflict-Free Mineral Certification Platform tackles one of the most pressin
 (batch-transfer token-ids recipients)
 ```
 - **Effect**: Transfer multiple certificates at once
+
+**Transfer Mine Ownership**
+```clarity
+(transfer-mine-ownership mine-id new-owner)
+```
+- **Effect**: Transfer ownership of a mine to a new principal
+- **Access**: Current mine owner only
+- **Requirement**: New owner must be different from current owner
 
 ### 🗳️ Community Governance
 
@@ -142,6 +151,12 @@ clarinet deploy
 ```clarity
 ;; Flag suspicious mine
 (contract-call? .cfm-platform flag-mine u1)
+```
+
+### 6️⃣ Transfer Mine Ownership
+```clarity
+;; Transfer mine ownership to new principal
+(contract-call? .cfm-platform transfer-mine-ownership u1 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG)
 ```
 
 ## 🛡️ Security Features
