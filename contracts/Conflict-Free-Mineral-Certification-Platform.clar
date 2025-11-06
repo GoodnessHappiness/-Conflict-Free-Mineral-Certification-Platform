@@ -11,11 +11,13 @@
 (define-constant err-insufficient-votes (err u107))
 (define-constant err-invalid-grade (err u108))
 (define-constant err-contract-paused (err u109))
+(define-constant err-already-endorsed (err u110))
 
 (define-data-var last-token-id uint u0)
 (define-data-var last-mine-id uint u0)
 (define-data-var voting-threshold uint u3)
 (define-data-var contract-paused bool false)
+(define-data-var certification-fee uint u1000000)
 
 (define-map mines uint {
     owner: principal,
@@ -24,7 +26,8 @@
     name: (string-ascii 50),
     whitelisted: bool,
     flagged: bool,
-    flag-votes: uint
+    flag-votes: uint,
+    endorsement-count: uint
 })
 
 (define-map mineral-certificates uint {
@@ -37,13 +40,15 @@
     transfer-history: (list 10 principal),
     quality-grade: (optional (string-ascii 3)),
     graded-by: (optional principal),
-    grade-date: (optional uint)
+    grade-date: (optional uint),
+    retired: bool
 })
 
 (define-map mine-whitelist uint bool)
 (define-map flag-votes { mine-id: uint, voter: principal } bool)
 (define-map authorized-certifiers principal bool)
 (define-map authorized-graders principal bool)
+(define-map mine-endorsements { mine-id: uint, endorser: principal } bool)
 
 (define-public (get-last-token-id)
     (ok (var-get last-token-id)))
@@ -58,10 +63,11 @@
     (let ((token (unwrap! (map-get? mineral-certificates token-id) err-not-found)))
         (asserts! (is-eq tx-sender sender) err-unauthorized)
         (asserts! (is-eq sender (get owner token)) err-unauthorized)
-        (map-set mineral-certificates token-id 
-            (merge token { 
+        (asserts! (not (get retired token)) err-unauthorized)
+        (map-set mineral-certificates token-id
+            (merge token {
                 owner: recipient,
-                transfer-history: (match (as-max-len? 
+                transfer-history: (match (as-max-len?
                     (append (get transfer-history token) recipient) u10)
                     new-history new-history
                     (get transfer-history token))
@@ -78,7 +84,8 @@
             name: name,
             whitelisted: false,
             flagged: false,
-            flag-votes: u0
+            flag-votes: u0,
+            endorsement-count: u0
         })
         (var-set last-mine-id mine-id)
         (print { action: "mine-registered", mine-id: mine-id, owner: tx-sender })
@@ -119,50 +126,65 @@
         (ok true)))
 
 (define-public (certify-mineral (mine-id uint) (mineral-type (string-ascii 30)) (quantity uint) (recipient principal))
-    (let ((token-id (+ (var-get last-token-id) u1))
-          (mine (unwrap! (map-get? mines mine-id) err-not-found)))
-        (asserts! (default-to false (map-get? authorized-certifiers tx-sender)) err-unauthorized)
-        (asserts! (get whitelisted mine) err-mine-not-whitelisted)
-        (asserts! (> quantity u0) err-invalid-amount)
-        (asserts! (not (get flagged mine)) err-unauthorized)
-        (map-set mineral-certificates token-id {
-            owner: recipient,
-            mine-id: mine-id,
-            mineral-type: mineral-type,
-            quantity: quantity,
-            certification-date: stacks-block-height,
-            origin-verified: true,
-            transfer-history: (list recipient),
-            quality-grade: none,
-            graded-by: none,
-            grade-date: none
-        })
-        (var-set last-token-id token-id)
-        (print { 
-            action: "mineral-certified", 
-            token-id: token-id, 
-            mine-id: mine-id, 
-            mineral-type: mineral-type,
-            quantity: quantity,
-            recipient: recipient 
-        })
-        (ok token-id)))
+     (let ((token-id (+ (var-get last-token-id) u1))
+           (mine (unwrap! (map-get? mines mine-id) err-not-found))
+           (fee (var-get certification-fee)))
+         (asserts! (default-to false (map-get? authorized-certifiers tx-sender)) err-unauthorized)
+         (asserts! (get whitelisted mine) err-mine-not-whitelisted)
+         (asserts! (> quantity u0) err-invalid-amount)
+         (asserts! (not (get flagged mine)) err-unauthorized)
+         (try! (stx-transfer? fee tx-sender contract-owner))
+         (map-set mineral-certificates token-id {
+             owner: recipient,
+             mine-id: mine-id,
+             mineral-type: mineral-type,
+             quantity: quantity,
+             certification-date: stacks-block-height,
+             origin-verified: true,
+             transfer-history: (list recipient),
+             quality-grade: none,
+             graded-by: none,
+             grade-date: none,
+             retired: false
+         })
+         (var-set last-token-id token-id)
+         (print {
+             action: "mineral-certified",
+             token-id: token-id,
+             mine-id: mine-id,
+             mineral-type: mineral-type,
+             quantity: quantity,
+             recipient: recipient
+         })
+         (ok token-id)))
 
 (define-public (flag-mine (mine-id uint))
     (let ((mine (unwrap! (map-get? mines mine-id) err-not-found)))
         (asserts! (is-none (map-get? flag-votes { mine-id: mine-id, voter: tx-sender })) err-already-voted)
         (map-set flag-votes { mine-id: mine-id, voter: tx-sender } true)
         (let ((new-vote-count (+ (get flag-votes mine) u1)))
-            (map-set mines mine-id 
+            (map-set mines mine-id
                 (merge mine { flag-votes: new-vote-count }))
             (if (>= new-vote-count (var-get voting-threshold))
                 (begin
-                    (map-set mines mine-id 
+                    (map-set mines mine-id
                         (merge mine { flagged: true, whitelisted: false }))
                     (map-set mine-whitelist mine-id false)
                     (print { action: "mine-flagged-and-removed", mine-id: mine-id, votes: new-vote-count }))
                 (print { action: "mine-vote-recorded", mine-id: mine-id, votes: new-vote-count }))
             (ok new-vote-count))))
+
+(define-public (endorse-mine (mine-id uint))
+    (let ((mine (unwrap! (map-get? mines mine-id) err-not-found)))
+        (asserts! (get whitelisted mine) err-mine-not-whitelisted)
+        (asserts! (not (get flagged mine)) err-unauthorized)
+        (asserts! (is-none (map-get? mine-endorsements { mine-id: mine-id, endorser: tx-sender })) err-already-endorsed)
+        (map-set mine-endorsements { mine-id: mine-id, endorser: tx-sender } true)
+        (let ((new-endorsement-count (+ (get endorsement-count mine) u1)))
+            (map-set mines mine-id
+                (merge mine { endorsement-count: new-endorsement-count }))
+            (print { action: "mine-endorsed", mine-id: mine-id, endorser: tx-sender, endorsements: new-endorsement-count })
+            (ok new-endorsement-count))))
 
 (define-public (update-voting-threshold (new-threshold uint))
     (begin
@@ -222,6 +244,22 @@
         (asserts! (not (is-eq new-owner (get owner mine))) err-unauthorized)
         (map-set mines mine-id (merge mine { owner: new-owner }))
         (print { action: "mine-ownership-transferred", mine-id: mine-id, from: tx-sender, to: new-owner })
+        (ok true)))
+
+(define-public (retire-certificate (token-id uint))
+    (let ((token (unwrap! (map-get? mineral-certificates token-id) err-not-found)))
+        (asserts! (is-eq tx-sender (get owner token)) err-unauthorized)
+        (asserts! (not (get retired token)) err-unauthorized)
+        (map-set mineral-certificates token-id
+            (merge token { retired: true }))
+        (print { action: "certificate-retired", token-id: token-id, owner: tx-sender })
+        (ok true)))
+
+(define-public (update-certification-fee (new-fee uint))
+    (begin
+        (asserts! (is-eq tx-sender contract-owner) err-owner-only)
+        (var-set certification-fee new-fee)
+        (print { action: "certification-fee-updated", new-fee: new-fee })
         (ok true)))
 
 (define-public (batch-transfer (token-ids (list 10 uint)) (recipients (list 10 principal)))
@@ -302,5 +340,13 @@
     (match (get-quality-grade token-id)
         current-grade (is-eq current-grade grade)
         false))
+
+(define-read-only (get-mine-endorsement-count (mine-id uint))
+    (match (map-get? mines mine-id)
+        mine (get endorsement-count mine)
+        u0))
+
+(define-read-only (has-user-endorsed (mine-id uint) (endorser principal))
+    (default-to false (map-get? mine-endorsements { mine-id: mine-id, endorser: endorser })))
 
 (map-set authorized-certifiers contract-owner true)

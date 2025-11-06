@@ -104,6 +104,16 @@ The Conflict-Free Mineral Certification Platform tackles one of the most pressin
 ```
 - **Access**: Contract owner only
 
+### 💰 Fee Management
+
+**Update Certification Fee**
+```clarity
+(update-certification-fee new-fee)
+```
+- **Parameters**: New fee amount (uint)
+- **Access**: Contract owner only
+- **Effect**: Updates the certification fee for mineral batches
+
 ## 📖 Read-Only Functions
 
 ### 🔍 Data Queries
