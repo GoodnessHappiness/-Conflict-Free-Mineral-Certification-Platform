@@ -255,6 +255,21 @@
         (print { action: "certificate-retired", token-id: token-id, owner: tx-sender })
         (ok true)))
 
+(define-public (batch-retire-certificates (token-ids (list 10 uint)))
+    (let ((retirements (map retire-single token-ids)))
+        (ok retirements)))
+
+(define-private (retire-single (token-id uint))
+    (match (map-get? mineral-certificates token-id)
+        token (begin
+            (asserts! (is-eq tx-sender (get owner token)) err-unauthorized)
+            (asserts! (not (get retired token)) err-unauthorized)
+            (map-set mineral-certificates token-id
+                (merge token { retired: true }))
+            (print { action: "batch-retire", token-id: token-id, owner: tx-sender })
+            (ok token-id))
+        err-not-found))
+
 (define-public (update-certification-fee (new-fee uint))
     (begin
         (asserts! (is-eq tx-sender contract-owner) err-owner-only)

@@ -13,6 +13,7 @@ The Conflict-Free Mineral Certification Platform tackles one of the most pressin
 - ✅ **Whitelist Management**: Authorized certification of verified safe-source mines
 - 👥 **Multi-role System**: Contract owner, authorized certifiers, and community participants
 - 🔄 **Mine Ownership Transfer**: Seamless transfer of mine ownership between principals
+- 🗂️ **Batch Retirement**: Efficiently retire multiple mineral certificates in one transaction
 
 ## 🔧 Contract Functions
 
@@ -63,6 +64,22 @@ The Conflict-Free Mineral Certification Platform tackles one of the most pressin
 (batch-transfer token-ids recipients)
 ```
 - **Effect**: Transfer multiple certificates at once
+
+**Retire Certificate**
+```clarity
+(retire-certificate token-id)
+```
+- **Effect**: Permanently retire a mineral certificate
+- **Access**: Certificate owner only
+- **Requirement**: Certificate must not already be retired
+
+**Batch Retire Certificates**
+```clarity
+(batch-retire-certificates token-ids)
+```
+- **Effect**: Retire multiple mineral certificates in a single transaction
+- **Access**: Certificate owners only
+- **Requirement**: Each certificate must not already be retired and owned by the caller
 
 **Transfer Mine Ownership**
 ```clarity
@@ -157,13 +174,22 @@ clarinet deploy
 (contract-call? .cfm-platform transfer u1 tx-sender 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG)
 ```
 
-### 5️⃣ Community Flagging
+### 5️⃣ Retire Certificates
+```clarity
+;; Retire a single certificate
+(contract-call? .cfm-platform retire-certificate u1)
+
+;; Batch retire multiple certificates
+(contract-call? .cfm-platform batch-retire-certificates (list u1 u2 u3))
+```
+
+### 6️⃣ Community Flagging
 ```clarity
 ;; Flag suspicious mine
 (contract-call? .cfm-platform flag-mine u1)
 ```
 
-### 6️⃣ Transfer Mine Ownership
+### 7️⃣ Transfer Mine Ownership
 ```clarity
 ;; Transfer mine ownership to new principal
 (contract-call? .cfm-platform transfer-mine-ownership u1 'ST2CY5V39NHDPWSXMW9QDT3HC3GD6Q6XX4CFRK9AG)
